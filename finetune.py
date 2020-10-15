@@ -56,6 +56,7 @@ def finetune(dataset_dir: str = "train"):
     # each sample is seen exactly once.
     num_train_epochs = 5
     for epoch in range(num_train_epochs):
+        print(f'第{epoch+1}个epoch:')
         for f, sequences_and_labels in tqdm(dataset):
             logger.info(f"Finetuning start on {f}")
 
@@ -66,7 +67,6 @@ def finetune(dataset_dir: str = "train"):
             # 所以有些训练样本可能被拆分为若干个子样本
             # 遍历训练样本的子样本
             for i, (sequence, labels) in enumerate(sequences_and_labels):
-                print(f'第{i+1}个epoch:')
                 # train model on this sample
                 inputs = tokenizer(sequence, return_tensors="pt")
                 labels = torch.tensor(labels)
