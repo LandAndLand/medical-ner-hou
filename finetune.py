@@ -3,6 +3,8 @@ from dataset import MedicalNERDataset, PreprocessForBERT
 from tqdm import tqdm
 from transformers import BertForTokenClassification, BertTokenizerFast, AdamW
 
+
+
 import fire
 import logging
 import torch
@@ -26,6 +28,7 @@ def finetune(dataset_dir: str = "train"):
     # First, it will split a given text in words (or part of words, punctuation symbols, etc
     # 具体查看transfrmer官方文档 https://huggingface.co/transformers/quicktour.html
     tokenizer = BertTokenizerFast.from_pretrained(BERT_VARIANT)
+
     model = BertForTokenClassification.from_pretrained(
         BERT_VARIANT,
         return_dict=True,
@@ -51,34 +54,37 @@ def finetune(dataset_dir: str = "train"):
 
     # finetune bert to each of the training sample.
     # each sample is seen exactly once.
-    for f, sequences_and_labels in tqdm(dataset):
-        logger.info(f"Finetuning start on {f}")
+    num_train_epochs = 5
+    for epoch in range(num_train_epochs):
+        for f, sequences_and_labels in tqdm(dataset):
+            logger.info(f"Finetuning start on {f}")
 
-        # each sample may contain tokens of length greater than 512
-        # which is bigger than bert can handle. PreprocessForBERT
-        # splits these sample tokens into blocks of size < 512
-        # 由于bert长度的512限制，训练样本必须保证小于等于512，
-        # 所以有些训练样本可能被拆分为若干个子样本
-        # 遍历训练样本的子样本
-        for i, (sequence, labels) in enumerate(sequences_and_labels):
-            # train model on this sample
-            inputs = tokenizer(sequence, return_tensors="pt")
-            labels = torch.tensor(labels)
+            # each sample may contain tokens of length greater than 512
+            # which is bigger than bert can handle. PreprocessForBERT
+            # splits these sample tokens into blocks of size < 512
+            # 由于bert长度的512限制，训练样本必须保证小于等于512，
+            # 所以有些训练样本可能被拆分为若干个子样本
+            # 遍历训练样本的子样本
+            for i, (sequence, labels) in enumerate(sequences_and_labels):
+                print(f'第{i+1}个epoch:')
+                # train model on this sample
+                inputs = tokenizer(sequence, return_tensors="pt")
+                labels = torch.tensor(labels)
 
-            # put sample on the gpu (if available)
-            if torch.cuda.is_available():
-                inputs = {k: v.cuda() for k, v in inputs.items()}
-                labels = labels.cuda()
+                # put sample on the gpu (if available)
+                if torch.cuda.is_available():
+                    inputs = {k: v.cuda() for k, v in inputs.items()}
+                    labels = labels.cuda()
 
-            # compute loss on this sample
-            loss = model(**inputs, labels=labels).loss
+                # compute loss on this sample
+                loss = model(**inputs, labels=labels).loss
 
-            # update model parameters
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                # update model parameters
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-            logger.info(f"Block {i} done with loss={loss}")
+                logger.info(f"Block {i} done with loss={loss}")
 
     # save finetuned weights
     ckpt_path = f"finetuned-{BERT_VARIANT}".replace("/", "-")
