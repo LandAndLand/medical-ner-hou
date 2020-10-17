@@ -1,11 +1,14 @@
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 from constants import LABELS
 from io import TextIOWrapper
 from typing import Callable, Dict, Generator, List, Tuple
+from pathlib import Path
 
 import logging
 import numpy as np
 import regex as re
+import random
+import shutil
 
 UNIQUE_LABELS = set(x[2:] for x in LABELS[1:])
 Entity = namedtuple('Entity', 'kind start end value')
@@ -150,6 +153,12 @@ def extract_entities(
                 # reset trackers
                 label, index, acc = '', -1, []
 
+    # process remaining stuff (if there's any)
+    if label != '':
+        # add accumulated stuff as an entity
+        entity = Entity(label[2:], index, len(predictions), decode(acc))
+        entities.append(entity)
+
     return entities
 
 
@@ -162,8 +171,12 @@ def realign_extracted_entities(
     seqi = tokeni_to_seqi(tokens, sequence, vocab=vocab)
 
     for entity in entities:
+        # there are some instances where the entity's end index is
+        # equal to the length of the tokens in which accessing it
+        # directly causes an IndexError (needs to be checked)
         starti = seqi[entity.start]
-        endi = seqi[entity.end]
+        endi = seqi[entity.end] if entity.end < len(
+            tokens) else [seqi[-1][-1] + 1]
 
         if isinstance(starti, list) and isinstance(endi, list):
             value = re.sub(r'\s+', '', entity.value)
@@ -256,7 +269,7 @@ def tokeni_to_seqi(tokens: List[str], sequence: str, vocab: Dict[str, int] = Non
     # and this needs to processed further
     tokeni = seqi_to_tokeni(sequence, tokens, vocab=vocab)
 
-    result = defaultdict(list)
+    result = [None] * len(tokens)
     for i, x in enumerate(tokeni):
         # whitespace characters are mapped to None indices
         # can be safely skipped
@@ -266,19 +279,41 @@ def tokeni_to_seqi(tokens: List[str], sequence: str, vocab: Dict[str, int] = Non
         # many sequence IDs can map to the same token IDs
         # so we store these sequence IDs and let the caller decide
         # what to do with it
-        result[x].append(i)
-
-    # we don't map [UNK] tokens to their corresponding words
-    # so we just set their sequence IDs to None
-    for i in set(range(len(tokens))) - set(result.keys()):
-        token = tokens[i]
-        if token == '[UNK]':
-            result[i] = None
+        if result[x] is None:
+            result[x] = [i]
         else:
-            raise AssertionError(f'Token={token} at i={i} should not be None!')
+            result[x].append(i)
 
-    # sanity check: result should have a length
-    # equal to the number of tokens
-    assert len(result) == len(tokens)
+    # sanity check: only [UNK] tokens should be mapped to None
+    for i, x in enumerate(result):
+        if x is None and tokens[i] != '[UNK]':
+            raise AssertionError(
+                f'Token={tokens[i]} at i={i} should not be None!')
 
-    return list(result.values())
+    return result
+
+
+def split_train_set(
+    source_dir='train',
+    split_train_dir='split_train',
+    split_val_dir='split_val',
+    train_raio=0.8,
+    shuffle=True,
+):
+    source_path = Path(source_dir)
+    split_train_path = Path(split_train_dir)
+    split_val_path = Path(split_val_dir)
+    split_train_path.mkdir(parents=False, exist_ok=True)
+    split_val_path.mkdir(parents=False, exist_ok=True)
+
+    samples = list(source_path.glob('*.txt'))
+    if shuffle:
+        random.shuffle(samples)
+
+    for i, sample in enumerate(samples):
+        dest_dir = split_train_path if i < len(samples)*train_raio
+        samples_ann_name = sample.stem+".ann"
+        sample_ann = source_path / sample_ann_name
+
+        shutil.copyfile(sample, dest_dir/sample.name)
+        shutil.copyfile(sample_ann, dest_dir/sample_ann_name)

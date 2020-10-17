@@ -14,6 +14,7 @@ def do_classify(sequence: str):
     # load finetuned model
     tokenizer = BertTokenizerFast.from_pretrained(BERT_VARIANT)
     model = BertForTokenClassification.from_pretrained(ckpt_path).eval()
+
     # print output
     entities = classify(model, tokenizer, sequence)
     for entity in entities:

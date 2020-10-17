@@ -6,10 +6,11 @@ from typing import Tuple, List
 
 
 class MedicalNERDataset(Dataset):
-    def __init__(self, dataset_dir: str, transform=None):
+    def __init__(self, dataset_dir, transform=None):
         self.dataset_path = Path(dataset_dir)
         assert self.dataset_path.is_dir()
         self.files = list(self.dataset_path.rglob('*.txt'))
+        #self.files = train_files
         self.transform = transform
 
     def __getitem__(self, index: int) -> Tuple[str, List[Entity]]:

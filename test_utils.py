@@ -103,30 +103,6 @@ class TestUtils(unittest.TestCase):
         start, end = blocks[1]
         self.assertEqual(token_ids[start: end], [4])
 
-    def test_extract_entities(self):
-        label2id = dict(zip(LABELS, range(len(LABELS))))
-        sequence = '凡脾胃虚弱,食入难化,呕吐泄泻,嘻嘻'
-        entities = [0] * len(sequence)
-
-        entities[1] = label2id['B-SYMPTOM']
-        entities[2:5] = [label2id['I-SYMPTOM']] * (5 - 2)
-
-        entities[11] = entities[13] = label2id['B-SYMPTOM']
-        entities[12] = entities[14] = label2id['I-SYMPTOM']
-
-        logits = np.eye(len(LABELS))[entities]
-        result = extract_entities(
-            sequence=sequence,
-            logits=logits,
-            encode=lambda x, **_: [ord(c) for c in x],
-            decode=lambda x: ''.join(chr(d) for d in x),
-        )
-
-        self.assertEqual(len(result), 3)
-        self.assertEqual(result[0], Entity('SYMPTOM', 1, 5, '脾胃虚弱'))
-        self.assertEqual(result[1], Entity('SYMPTOM', 11, 13, '呕吐'))
-        self.assertEqual(result[2], Entity('SYMPTOM', 13, 15, '泄泻'))
-
     def test_seqi_to_tokeni(self):
         sequence = ' 灯心草汤或温开水送服，两回6g，一日2～3次。  7g*5袋*3盒 miguel  '
         tokens = [
@@ -199,6 +175,131 @@ class TestUtils(unittest.TestCase):
             [sequence[j] for j in results[29]],
             ['u', 'e', 'l'],
         )
+
+
+class TestExtractEntities(unittest.TestCase):
+    def setUp(self):
+        self.label2id = dict(zip(LABELS, range(len(LABELS))))
+        self.encode = lambda x, **_: [ord(c) for c in x]
+        self.decode = lambda x: ''.join(chr(d) for d in x)
+
+    def test_extract_entities(self):
+        sequence = '凡脾胃虚弱,食入难化,呕吐泄泻,嘻嘻'
+        entities = [0] * len(sequence)
+
+        entities[1] = self.label2id['B-SYMPTOM']
+        entities[2:5] = [self.label2id['I-SYMPTOM']] * (5 - 2)
+
+        entities[11] = self.label2id['B-DRUG']
+        entities[12] = self.label2id['I-DRUG']
+
+        entities[13] = self.label2id['B-DISEASE']
+        entities[14] = self.label2id['I-DISEASE']
+
+        logits = np.eye(len(LABELS))[entities]
+        result = extract_entities(
+            sequence=sequence,
+            logits=logits,
+            encode=self.encode,
+            decode=self.decode,
+        )
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], Entity('SYMPTOM', 1, 5, '脾胃虚弱'))
+        self.assertEqual(result[1], Entity('DRUG', 11, 13, '呕吐'))
+        self.assertEqual(result[2], Entity('DISEASE', 13, 15, '泄泻'))
+
+    def test_b_followed_by_b(self):
+        sequence = '0123456789'
+        entities = [0] * len(sequence)
+
+        entities[0] = self.label2id['B-DRUG']
+        entities[1] = self.label2id['B-SYMPTOM']
+        entities[4] = self.label2id['B-FOOD']
+        entities[5] = self.label2id['B-DISEASE']
+        entities[8] = self.label2id['B-SYNDROME']
+        entities[9] = self.label2id['B-FOOD_GROUP']
+
+        logits = np.eye(len(LABELS))[entities]
+        result = extract_entities(
+            sequence=sequence,
+            logits=logits,
+            encode=self.encode,
+            decode=self.decode,
+        )
+
+        self.assertEqual(len(result), 6)
+        self.assertEqual(result[0], Entity('DRUG', 0, 1, '0'))
+        self.assertEqual(result[1], Entity('SYMPTOM', 1, 2, '1'))
+        self.assertEqual(result[2], Entity('FOOD', 4, 5, '4'))
+        self.assertEqual(result[3], Entity('DISEASE', 5, 6, '5'))
+        self.assertEqual(result[4], Entity('SYNDROME', 8, 9, '8'))
+        self.assertEqual(result[5], Entity('FOOD_GROUP', 9, 10, '9'))
+
+    def test_entity_starts_with_i(self):
+        sequence = '0123456789'
+        entities = [0] * len(sequence)
+
+        entities[0] = self.label2id['B-DRUG']
+        entities[1] = self.label2id['I-DRUG']
+        entities[2] = self.label2id['I-DRUG']
+        entities[3] = self.label2id['I-DISEASE']
+        entities[4] = self.label2id['I-DISEASE']
+        entities[6] = self.label2id['B-FOOD_GROUP']
+
+        logits = np.eye(len(LABELS))[entities]
+        result = extract_entities(
+            sequence=sequence,
+            logits=logits,
+            encode=self.encode,
+            decode=self.decode,
+        )
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], Entity('DRUG', 0, 3, '012'))
+        self.assertEqual(result[1], Entity('DISEASE', 3, 5, '34'))
+        self.assertEqual(result[2], Entity('FOOD_GROUP', 6, 7, '6'))
+
+    def test_entity_i_followed_by_i(self):
+        sequence = '0123456789'
+        entities = [0] * len(sequence)
+
+        entities[0] = self.label2id['I-DRUG']
+        entities[1] = self.label2id['I-SYMPTOM']
+        entities[4] = self.label2id['I-FOOD']
+        entities[5] = self.label2id['I-DISEASE']
+        entities[8] = self.label2id['I-SYNDROME']
+        entities[9] = self.label2id['I-FOOD_GROUP']
+
+        logits = np.eye(len(LABELS))[entities]
+        result = extract_entities(
+            sequence=sequence,
+            logits=logits,
+            encode=self.encode,
+            decode=self.decode,
+        )
+
+        self.assertEqual(len(result), 6)
+        self.assertEqual(result[0], Entity('DRUG', 0, 1, '0'))
+        self.assertEqual(result[1], Entity('SYMPTOM', 1, 2, '1'))
+        self.assertEqual(result[2], Entity('FOOD', 4, 5, '4'))
+        self.assertEqual(result[3], Entity('DISEASE', 5, 6, '5'))
+        self.assertEqual(result[4], Entity('SYNDROME', 8, 9, '8'))
+        self.assertEqual(result[5], Entity('FOOD_GROUP', 9, 10, '9'))
+
+    def test_no_entity(self):
+        sequence = '0123456789'
+        entities = [0] * len(sequence)
+
+        logits = np.eye(len(LABELS))[entities]
+        result = extract_entities(
+            sequence=sequence,
+            logits=logits,
+            encode=self.encode,
+            decode=self.decode,
+        )
+
+        self.assertEqual(len(result), 0)
 
 
 if __name__ == '__main__':
